@@ -1,0 +1,522 @@
+integer SYSTEM_public = TRUE;
+vector  VEHICLE_powers=<1.0,0.5,2.0>;//fwd,back,turning ratio
+float   VEHICLE_turnangle;float VEHICLE_maxturn=0.6119;
+string  MESSAGE_nogo  = "You are not the owner of this vehicle..."; //Not owner message
+vector  VEHICLE_pos;rotation VEHICLE_rot;
+key     SYSTEM_user; key SYSTEM_owner;
+integer SYSTEM_controls;integer SYSTEM_permissions;
+list    VEHICLE_moveparams;float VEHICLE_delta;
+vector  VEHICLE_frontLeft;vector VEHICLE_frontRight;
+vector  VEHICLE_backLeft;vector VEHICLE_backRight;
+vector  VEHICLE_frontLeftGlobal;vector VEHICLE_frontRightGlobal;
+vector  VEHICLE_backLeftGlobal;vector VEHICLE_backRightGlobal;
+vector  VEHICLE_averagePos;
+float   VEHICLE_mass;float VEHICLE_gravity=-9.81;
+float   VEHICLE_timeDelta;
+vector  AXEL_rearMount;vector  AXEL_frontMount;
+vector  AXEL_frontRightMount;vector AXEL_frontLeftMount;
+vector  AXEL_sprBackMount;vector  AXEL_sprFrontMount;
+vector  DRIVE_linearmotor;
+integer GRAPPLE_active=FALSE;key GRAPPLE_hit;
+vector  GRAPPLE_offset;
+vector  WHEELS_height=<0.0,0.0,0.86465>;
+integer WHEELS_raystep;
+integer LINK_hitFR; integer LINK_hitFL;
+integer LINK_hitBR; integer LINK_hitBL;
+
+//links
+integer LINK_cable;
+//steering wheel
+integer LINK_steer;
+//wheels
+integer LINK_wheelFR;integer LINK_wheelFL;
+integer LINK_wheelBR;integer LINK_wheelBL;
+//front suspention
+integer LINK_hubFrontLeft;     integer LINK_hubFrontRight;
+integer LINK_susFrontLeftUpper;integer LINK_susFrontRightUpper;
+integer LINK_susFrontLeftLower;integer LINK_susFrontRightLower;
+integer LINK_susFrontLeftMount;integer LINK_susFrontRightMount;
+integer LINK_springFrontLeft;integer LINK_springFrontRight;
+integer LINK_susFrontShocksMount;
+integer LINK_mountFront;
+//back suspention
+integer LINK_sprBackLeft;     integer LINK_sprBackRight;
+integer LINK_hubBackLeft;     integer LINK_hubBackRight;
+integer LINK_susBackLeft;     integer LINK_susBackRight;
+integer LINK_dshaftBack;      integer LINK_axelBack;
+integer LINK_mountRear;       integer LINK_gearbox;
+integer LINK_susBackShocksMount;
+float VEHICLE_incriment;
+init()
+{
+    SYSTEM_owner=llGetOwner();vector height=llGetPos();
+    getlinks();VEHICLE_rot=llGetRootRotation();VEHICLE_pos=llGetRootPosition();
+    AXEL_rearMount=getLinkedPos(LINK_mountRear);
+    AXEL_frontLeftMount=getLinkedPos(LINK_susFrontLeftMount);
+    AXEL_frontRightMount=getLinkedPos(LINK_susFrontRightMount);
+    AXEL_sprFrontMount=getLinkedPos(LINK_susFrontShocksMount);
+    AXEL_sprBackMount=getLinkedPos(LINK_susBackShocksMount);
+    SYSTEM_controls=CONTROL_FWD|CONTROL_BACK|
+    CONTROL_RIGHT|CONTROL_LEFT|CONTROL_ROT_RIGHT|
+    CONTROL_ROT_LEFT|CONTROL_ML_LBUTTON|CONTROL_LBUTTON|CONTROL_UP|CONTROL_DOWN;
+    SYSTEM_permissions=PERMISSION_TRIGGER_ANIMATION|
+    PERMISSION_TAKE_CONTROLS|PERMISSION_TRACK_CAMERA;
+    llSitTarget(<0.55,0.41,0.8>,llEuler2Rot(<0,0,0>));
+    llSetCameraEyeOffset(<-12.0, 0.0, 4.0>);
+    llSetCameraAtOffset(<35.0, 0.0, -3.0>);
+    llSetVehicleType(VEHICLE_TYPE_CAR);
+    llSetVehicleFloatParam(VEHICLE_ANGULAR_DEFLECTION_EFFICIENCY, 0.0);
+    llSetVehicleFloatParam(VEHICLE_ANGULAR_DEFLECTION_TIMESCALE, 1000.0);
+    llSetVehicleFloatParam(VEHICLE_LINEAR_DEFLECTION_EFFICIENCY, 1.0);
+    llSetVehicleFloatParam(VEHICLE_LINEAR_DEFLECTION_TIMESCALE, 2.0);
+    llSetVehicleFloatParam(VEHICLE_LINEAR_MOTOR_TIMESCALE, 1.5);
+    llSetVehicleFloatParam(VEHICLE_LINEAR_MOTOR_DECAY_TIMESCALE, 10.0);
+    llSetVehicleFloatParam(VEHICLE_ANGULAR_MOTOR_TIMESCALE, 1.0);
+    llSetVehicleFloatParam(VEHICLE_ANGULAR_MOTOR_DECAY_TIMESCALE, 0.7);
+    llSetVehicleVectorParam(VEHICLE_LINEAR_FRICTION_TIMESCALE, <100.0,0.1,1000.0>);
+    llSetVehicleVectorParam(VEHICLE_ANGULAR_FRICTION_TIMESCALE, <2.5,2.5,0.5>);
+    llSetVehicleFloatParam(VEHICLE_VERTICAL_ATTRACTION_EFFICIENCY, 0.3);
+    llSetVehicleFloatParam(VEHICLE_VERTICAL_ATTRACTION_TIMESCALE, 7.0);
+    llSetVehicleFloatParam(VEHICLE_HOVER_HEIGHT,height.z);
+    llSetVehicleFloatParam(VEHICLE_HOVER_EFFICIENCY, 0.2);
+    llSetVehicleFloatParam(VEHICLE_HOVER_TIMESCALE, 0.1);
+    llSetVehicleFloatParam(VEHICLE_BUOYANCY, 0.0);
+    //banking
+    llSetVehicleFloatParam(VEHICLE_BANKING_EFFICIENCY, 0.0);
+    llSetVehicleFloatParam(VEHICLE_BANKING_MIX, 0.0);
+    llSetVehicleFloatParam(VEHICLE_BANKING_TIMESCALE, 1000.0);
+    
+    llSetVehicleFlags(
+        VEHICLE_FLAG_NO_DEFLECTION_UP|
+        VEHICLE_FLAG_LIMIT_ROLL_ONLY|
+        VEHICLE_FLAG_HOVER_GLOBAL_HEIGHT
+    );
+    ANIM_shocks();
+}
+getlinks()
+{
+    integer total=llGetNumberOfPrims()+1;string name;
+    while(total--)
+    {
+        name=llGetLinkName(total);
+        //debug
+        if(name=="hitFR")LINK_hitFR=total;
+        if(name=="hitFL")LINK_hitFL=total;
+        if(name=="hitBR")LINK_hitBR=total;
+        if(name=="hitBL")LINK_hitBL=total;
+        
+        if(name=="cable")LINK_cable=total;
+        //wheels
+        if(name=="wheelFR")LINK_wheelFR=total;
+        if(name=="wheelFL")LINK_wheelFL=total;
+        if(name=="wheelBR")LINK_wheelBR=total;
+        if(name=="wheelBL")LINK_wheelBL=total;
+        //front suspention
+        if(name=="hubFrontLeft")             LINK_hubFrontLeft=total;
+        if(name=="hubFrontRight")            LINK_hubFrontRight=total;
+        if(name=="suspentionFrontLeftUpper") LINK_susFrontLeftUpper=total;
+        if(name=="suspentionFrontRightUpper")LINK_susFrontRightUpper=total;
+        if(name=="suspentionFrontLeftLower") LINK_susFrontLeftLower=total;
+        if(name=="suspentionFrontRightLower")LINK_susFrontRightLower=total;
+        if(name=="suspentionFrontLeftMount") LINK_susFrontLeftMount=total;
+        if(name=="suspentionFrontRightMount")LINK_susFrontRightMount=total;
+        if(name=="springFrontLeft")          LINK_springFrontLeft=total;
+        if(name=="springFrontRight")         LINK_springFrontRight=total;
+        if(name=="mountFront")               LINK_mountFront=total;
+        if(name=="suspentionFrontShocksMount")LINK_susFrontShocksMount=total;
+        //back suspention
+        if(name=="hubBackLeft")              LINK_hubBackLeft=total;
+        if(name=="hubBackRight")             LINK_hubBackRight=total;
+        if(name=="suspentionBackLeft")       LINK_susBackLeft=total;
+        if(name=="suspentionBackRight")      LINK_susBackRight=total;
+        if(name=="springBackLeft")           LINK_sprBackLeft=total;
+        if(name=="springBackRight")          LINK_sprBackRight=total;
+        if(name=="mountRear")                LINK_mountRear=total;
+        if(name=="axelBack")                 LINK_axelBack=total;
+        if(name=="dshaftBack")               LINK_dshaftBack=total;
+        if(name=="susBackShocksMount")LINK_susBackShocksMount=total;
+        if(name=="gearbox")                  LINK_gearbox=total;
+    }
+    total=0;name="";
+}
+list rayPoint(vector start,vector end,integer agents)
+{
+    list hits;
+    if(!agents)
+        hits=llCastRay(start+VEHICLE_pos,end+VEHICLE_pos,[RC_REJECT_TYPES,RC_REJECT_AGENTS,RC_DATA_FLAGS,RC_GET_ROOT_KEY,RC_MAX_HITS,1]); 
+    else
+        hits=llCastRay(start+VEHICLE_pos,end+VEHICLE_pos,[RC_DATA_FLAGS,RC_GET_ROOT_KEY,RC_MAX_HITS,1]); 
+    key targ=llList2Key(hits,0);
+    //0:key 1:pos 2:normal
+    if(llList2Integer(hits,-1))
+    {
+        /*if(targ!=NULL_KEY)
+        {
+            list params=llGetObjectDetails(targ,[OBJECT_POS,OBJECT_ROT]);
+            return[targ,llList2Vector(params,0)+(llList2Vector(hits,1)-llList2Vector(params,0))/llList2Rot(params,1),llList2Vector(hits,2)];
+        }
+        else*/ return hits;
+    }
+    else return hits;  
+}
+float gm()
+{return llGetFreeMemory()*0.000976;}
+vector localizePos(vector pos)
+{return (pos-VEHICLE_pos)/VEHICLE_rot;}
+float rotFront(vector scale)
+{return llAtan2(scale.x,scale.z);}
+float rotSide(vector scale)
+{return llAtan2(scale.y,-scale.z);}
+float clamp(float input,float min,float max)
+{
+    if(input>max)input=max;
+    if(input<min)input=min;
+    return input;
+}
+rotation IK_bonerot(vector up,vector fwd)
+{
+    rotation rot = llRotBetween(<0,0,1>,llVecNorm(up));
+    fwd=llVecNorm(fwd)/rot;
+    return llEuler2Rot(<0,0,llAtan2(fwd.y,fwd.x)>)*rot;
+}
+list ropeOrient(integer link,vector start,vector end,float radius)
+{
+    start=localizePos(start);end=localizePos(end);
+    vector orient=start-end;float length=llVecMag(orient);
+    return[//[pos,rot,length]
+        PRIM_LINK_TARGET,link,PRIM_POS_LOCAL,<3.0,0.0,0.0>-orient/2,
+        PRIM_LINK_TARGET,link,PRIM_ROT_LOCAL,IK_bonerot(orient,llRot2Fwd(VEHICLE_rot)),
+        PRIM_LINK_TARGET,link,PRIM_SIZE,<radius,radius,length>
+    ];
+}
+float solveShockDrift(float hyp,float height,float wheelOffset)
+{
+    float slide;
+    //square(hyp) square(height)
+    slide=hyp*hyp-height*height;
+    //backwards pythagorean
+    if(slide<0)
+        slide=-llSqrt(llFabs(slide));
+    else
+        slide=llSqrt(slide);
+        
+    return slide;   
+}
+vector getLinkedPos(integer link)
+{return llList2Vector(llGetLinkPrimitiveParams(link,[PRIM_POS_LOCAL]),0);}
+ANIM_shocks()
+{
+    list hits;vector vel=llGetVel()/VEHICLE_rot;
+    vector accel=llGetAccel()/VEHICLE_rot;
+    if((VEHICLE_incriment+=(vel.x)*VEHICLE_delta)>(3.1415*2))
+            VEHICLE_incriment=0.0;
+            
+    VEHICLE_timeDelta+=VEHICLE_delta;
+    if(VEHICLE_timeDelta>0.15)
+    {
+        VEHICLE_timeDelta=0.0;
+        WHEELS_raystep=0;VEHICLE_averagePos=ZERO_VECTOR;
+        //front left
+        hits=rayPoint(<2.41261, 1.82411, 0.53195>*VEHICLE_rot,<2.41261, 1.82411, -2.5>*VEHICLE_rot,FALSE);
+        if(hits!=[0])
+        {
+            VEHICLE_frontLeftGlobal=llList2Vector(hits,1)+WHEELS_height*VEHICLE_rot;
+            VEHICLE_frontLeft=localizePos(VEHICLE_frontLeftGlobal);
+            VEHICLE_averagePos+=VEHICLE_frontLeftGlobal;
+        }
+        else
+        {
+            VEHICLE_frontLeftGlobal=VEHICLE_pos+<2.41261, 1.82411, -1.16214>*VEHICLE_rot;
+            VEHICLE_frontLeft=localizePos(VEHICLE_frontLeftGlobal);
+            VEHICLE_averagePos+=VEHICLE_frontLeftGlobal+<0.0,0.0,VEHICLE_gravity*VEHICLE_delta>;
+        }
+        hits=rayPoint(<2.41261, -1.82411, 0.53195>*VEHICLE_rot,<2.41261, -1.82411, -2.5>*VEHICLE_rot,FALSE);
+        if(hits!=[0])
+        {
+            VEHICLE_frontRightGlobal=llList2Vector(hits,1)+WHEELS_height*VEHICLE_rot;
+            VEHICLE_frontRight=localizePos(VEHICLE_frontRightGlobal);
+            VEHICLE_averagePos+=VEHICLE_frontRightGlobal;
+        }
+        else
+        {
+            VEHICLE_frontRightGlobal=VEHICLE_pos+<2.41261, -1.82411, -1.16214>*VEHICLE_rot;
+            VEHICLE_frontRight=localizePos(VEHICLE_frontRightGlobal);
+            VEHICLE_averagePos+=VEHICLE_frontRightGlobal+<0.0,0.0,VEHICLE_gravity*VEHICLE_delta>;
+        }
+        hits=rayPoint(<-2.41261, 1.82411, 0.53195>*VEHICLE_rot,<-2.41261, 1.82411, -2.5>*VEHICLE_rot,FALSE);
+        if(hits!=[0])
+        {
+            VEHICLE_backLeftGlobal=llList2Vector(hits,1)+WHEELS_height*VEHICLE_rot;
+            VEHICLE_backLeft=localizePos(VEHICLE_backLeftGlobal);
+            VEHICLE_averagePos+=VEHICLE_backLeftGlobal;
+        }
+        else
+        {
+            VEHICLE_backLeftGlobal=VEHICLE_pos+<-2.41261, 1.82411, -1.16214>*VEHICLE_rot;
+            VEHICLE_backLeft=localizePos(VEHICLE_backLeftGlobal);
+            VEHICLE_averagePos+=VEHICLE_backLeftGlobal+<0.0,0.0,VEHICLE_gravity*VEHICLE_delta>;
+        }
+        hits=rayPoint(<-2.41261, -1.82411, 0.53195>*VEHICLE_rot,<-2.41261, -1.82411, -2.5>*VEHICLE_rot,FALSE);
+        if(hits!=[0])
+        {
+            VEHICLE_backRightGlobal=llList2Vector(hits,1)+WHEELS_height*VEHICLE_rot;
+            VEHICLE_backRight=localizePos(VEHICLE_backRightGlobal);
+            VEHICLE_averagePos+=VEHICLE_backRightGlobal;
+        }
+        else
+        {
+            VEHICLE_backRightGlobal=VEHICLE_pos+<-2.41261, -1.82411, -1.16214>*VEHICLE_rot;
+            VEHICLE_backRight=localizePos(VEHICLE_backRightGlobal);
+            VEHICLE_averagePos+=VEHICLE_backRightGlobal+<0.0,0.0,VEHICLE_gravity*VEHICLE_delta>;
+        }
+        VEHICLE_averagePos/=4.0;
+    }
+    llSetVehicleFloatParam(VEHICLE_HOVER_HEIGHT,VEHICLE_averagePos.z+0.9);
+    VEHICLE_moveparams+=[
+        PRIM_LINK_TARGET,LINK_hitFL,PRIM_POS_LOCAL,VEHICLE_frontLeft,
+        PRIM_LINK_TARGET,LINK_hitFR,PRIM_POS_LOCAL,VEHICLE_frontRight,
+        PRIM_LINK_TARGET,LINK_hitBL,PRIM_POS_LOCAL,VEHICLE_backLeft,
+        PRIM_LINK_TARGET,LINK_hitBR,PRIM_POS_LOCAL,VEHICLE_backRight
+    ];
+    //front suspention offset
+    vector up=<0.0,0.0,0.25>;
+    vector down=<0.0,0.0,-0.25>;
+    vector barspacing=<0.0,0.6,0.0>;
+    vector backAxel=(VEHICLE_backLeft+VEHICLE_backRight)/2;
+    //front shock drift
+    VEHICLE_frontLeft.y=solveShockDrift(1.9,VEHICLE_frontLeft.z-AXEL_frontLeftMount.z,1.82411);
+    VEHICLE_frontRight.y=-solveShockDrift(1.9,VEHICLE_frontRight.z-AXEL_frontRightMount.z,1.82411);
+    backAxel.x=-solveShockDrift(2.7,AXEL_sprBackMount.z-backAxel.z,1.9673);
+    //front suspention
+    float frontLeftAngle=rotSide(AXEL_frontLeftMount-VEHICLE_frontLeft);
+    rotation frontLeftQuat=llEuler2Rot(<frontLeftAngle,0.0,0.0>);
+    float frontRightAngle=rotSide(AXEL_frontRightMount-VEHICLE_frontRight);
+    rotation frontRightQuat=llEuler2Rot(<frontRightAngle,0.0,0.0>);
+    //car angling
+    float frontAtanAngle=rotSide(VEHICLE_frontLeft-VEHICLE_frontRight);
+    float rightAtanAngle=rotFront(VEHICLE_frontRight-VEHICLE_backRight);
+    float leftAtanAngle=rotFront(VEHICLE_frontLeft-VEHICLE_backLeft);
+    //back suspention
+    float backAtanAngle=rotSide(VEHICLE_backLeft-VEHICLE_backRight);
+    rotation backAxelAngle=llEuler2Rot(<backAtanAngle,0.0,0.0>);
+    float backAtanShaft=rotFront(AXEL_rearMount-backAxel);
+    rotation backShaftAngle=llEuler2Rot(<0.0,backAtanShaft,0.0>);
+    vector backLeftBarMount=backAxel+<0.0,0.0,-1.0>*backAxelAngle;
+    vector backRightBarMount=backAxel+<0.0,0.0,1.0>*backAxelAngle;
+    float backLeftBarAngle=rotFront((AXEL_rearMount+barspacing)-backLeftBarMount);
+    float backRightBarAngle=rotFront((AXEL_rearMount-barspacing)-backRightBarMount);
+    //front springs
+    vector frontLeftSpringScale=AXEL_sprBackMount-VEHICLE_frontLeft;
+    vector frontRightSpringScale=AXEL_sprBackMount-VEHICLE_frontRight;
+    //back springs
+    vector backLeftSpringScale=((AXEL_sprBackMount+barspacing)-backLeftBarMount);
+    vector backRightSpringScale=((AXEL_sprBackMount-barspacing)-backRightBarMount);
+    llSetVehicleVectorParam(VEHICLE_ANGULAR_MOTOR_DIRECTION,(<accel.y*0.3,-accel.x*0.5,0.0>)+<(frontAtanAngle+backAtanAngle)/2-1.57,((leftAtanAngle+rightAtanAngle)/2)-1.57,0.0>*VEHICLE_mass*1.9);
+    //llSetVehicleVectorParam(VEHICLE_ANGULAR_MOTOR_DIRECTION, <(frontAtanAngle+backAtanAngle)/2-1.57,0.0,0.0>*VEHICLE_mass);
+    llSetText(
+        "Memory: "+(string)gm()+"\n"+
+        "Velocity: "+(string)(llGetVel()/VEHICLE_rot)+"\n"+
+        "Average LRangle: "+(string)(((frontAtanAngle+backAtanAngle)/2)-1.57)+"\n"+
+        "Backright: "+(string)VEHICLE_backRightGlobal+"\n"+
+        "Backleft: "+(string)VEHICLE_backLeftGlobal+"\n"+
+        "Average height: "+(string)VEHICLE_averagePos
+    ,<1.0,1.0,1.0>,1.0);
+    VEHICLE_moveparams+=[
+        //front shocks pos
+        PRIM_LINK_TARGET,LINK_susFrontLeftUpper,PRIM_POS_LOCAL,(AXEL_frontLeftMount+up+VEHICLE_frontLeft+up)/2,
+        PRIM_LINK_TARGET,LINK_susFrontLeftLower,PRIM_POS_LOCAL,(AXEL_frontLeftMount+down+VEHICLE_frontLeft+down)/2,
+        PRIM_LINK_TARGET,LINK_susFrontRightUpper,PRIM_POS_LOCAL,(AXEL_frontRightMount+up+VEHICLE_frontRight+up)/2,
+        PRIM_LINK_TARGET,LINK_susFrontRightLower,PRIM_POS_LOCAL,(AXEL_frontRightMount+down+VEHICLE_frontRight+down)/2,
+        //front shocks rot
+        PRIM_LINK_TARGET,LINK_susFrontLeftUpper,PRIM_ROT_LOCAL,frontLeftQuat,
+        PRIM_LINK_TARGET,LINK_susFrontLeftLower,PRIM_ROT_LOCAL,frontLeftQuat,
+        PRIM_LINK_TARGET,LINK_susFrontRightUpper,PRIM_ROT_LOCAL,frontRightQuat,
+        PRIM_LINK_TARGET,LINK_susFrontRightLower,PRIM_ROT_LOCAL,frontRightQuat,
+        //front springs scale
+        PRIM_LINK_TARGET,LINK_springFrontLeft,PRIM_SIZE,<0.1597,0.1597,frontLeftSpringScale.z>,
+        PRIM_LINK_TARGET,LINK_springFrontRight,PRIM_SIZE,<0.1597,0.1597,frontRightSpringScale.z>,
+        //back shocks pos
+        PRIM_LINK_TARGET,LINK_gearbox,PRIM_POS_LOCAL,backAxel,
+        PRIM_LINK_TARGET,LINK_susBackLeft,PRIM_POS_LOCAL,((AXEL_rearMount+barspacing)+backLeftBarMount)/2,
+        PRIM_LINK_TARGET,LINK_susBackRight,PRIM_POS_LOCAL,((AXEL_rearMount-barspacing)+backRightBarMount)/2,
+        PRIM_LINK_TARGET,LINK_axelBack,PRIM_POS_LOCAL,backAxel,
+        PRIM_LINK_TARGET,LINK_dshaftBack,PRIM_POS_LOCAL,(AXEL_rearMount+backAxel)/2,
+        PRIM_LINK_TARGET,LINK_sprBackLeft,PRIM_POS_LOCAL,((AXEL_sprBackMount+barspacing)+backLeftBarMount)/2,
+        PRIM_LINK_TARGET,LINK_sprBackRight,PRIM_POS_LOCAL,((AXEL_sprBackMount-barspacing)+backRightBarMount)/2,
+        //back shocks rot
+        PRIM_LINK_TARGET,LINK_susBackLeft,PRIM_ROT_LOCAL,llEuler2Rot(<0.0,backLeftBarAngle,0.0>),
+        PRIM_LINK_TARGET,LINK_susBackRight,PRIM_ROT_LOCAL,llEuler2Rot(<0.0,backRightBarAngle,0.0>),
+        PRIM_LINK_TARGET,LINK_axelBack,PRIM_ROT_LOCAL,backAxelAngle,
+        PRIM_LINK_TARGET,LINK_dshaftBack,PRIM_ROT_LOCAL,backShaftAngle,
+        //back springs scale
+        PRIM_LINK_TARGET,LINK_sprBackLeft,PRIM_SIZE,<0.1597,0.1597,backLeftSpringScale.z>,
+        PRIM_LINK_TARGET,LINK_sprBackRight,PRIM_SIZE,<0.1597,0.1597,backRightSpringScale.z>,
+        //wheels pos
+        PRIM_LINK_TARGET,LINK_hubFrontLeft,PRIM_POS_LOCAL,VEHICLE_frontLeft,
+        PRIM_LINK_TARGET,LINK_hubFrontRight,PRIM_POS_LOCAL,VEHICLE_frontRight,
+        PRIM_LINK_TARGET,LINK_hubBackLeft,PRIM_POS_LOCAL,backAxel+<0.0,0.0,-1.6343>*backAxelAngle,
+        PRIM_LINK_TARGET,LINK_hubBackRight,PRIM_POS_LOCAL,backAxel+<0.0,0.0,1.6343>*backAxelAngle,
+        PRIM_LINK_TARGET,LINK_wheelFL,PRIM_POS_LOCAL,VEHICLE_frontLeft,
+        PRIM_LINK_TARGET,LINK_wheelFR,PRIM_POS_LOCAL,VEHICLE_frontRight,
+        PRIM_LINK_TARGET,LINK_wheelBL,PRIM_POS_LOCAL,backAxel+<0.0,0.0,-1.6343>*backAxelAngle,
+        PRIM_LINK_TARGET,LINK_wheelBR,PRIM_POS_LOCAL,backAxel+<0.0,0.0,1.6343>*backAxelAngle,
+        //wheels rot
+        PRIM_LINK_TARGET,LINK_hubFrontLeft,PRIM_ROT_LOCAL,llEuler2Rot(<1.57,VEHICLE_turnangle,0.0>),
+        PRIM_LINK_TARGET,LINK_hubFrontRight,PRIM_ROT_LOCAL,llEuler2Rot(<-1.57,-VEHICLE_turnangle,0.0>),
+        PRIM_LINK_TARGET,LINK_hubBackLeft,PRIM_ROT_LOCAL,llEuler2Rot(<0.0,-VEHICLE_turnangle,0.0>)*backAxelAngle,
+        PRIM_LINK_TARGET,LINK_hubBackRight,PRIM_ROT_LOCAL,llEuler2Rot(<3.14159,VEHICLE_turnangle,0.0>)*backAxelAngle,
+        PRIM_LINK_TARGET,LINK_wheelFL,PRIM_ROT_LOCAL,llEuler2Rot(<0.0,-VEHICLE_incriment,0.0>)*llEuler2Rot(<3.14159,0.0,-VEHICLE_turnangle>),
+        PRIM_LINK_TARGET,LINK_wheelFR,PRIM_ROT_LOCAL,llEuler2Rot(<0.0,VEHICLE_incriment,0.0>)*llEuler2Rot(<0.0,0.0,VEHICLE_turnangle>),
+        PRIM_LINK_TARGET,LINK_wheelBL,PRIM_ROT_LOCAL,llEuler2Rot(<0.0,-VEHICLE_incriment,0.0>)*llEuler2Rot(<1.57,0.0,VEHICLE_turnangle>)*backAxelAngle,
+        PRIM_LINK_TARGET,LINK_wheelBR,PRIM_ROT_LOCAL,llEuler2Rot(<0.0,VEHICLE_incriment,0.0>)*llEuler2Rot(<-1.57,0.0,-VEHICLE_turnangle>)*backAxelAngle
+    ];
+}
+ANIM_grapple()
+{
+    if(!GRAPPLE_active)return;
+    list params=llGetObjectDetails(GRAPPLE_hit,[OBJECT_POS,OBJECT_ROT]);
+    vector myPos=llGetPos();
+    vector hitPos=llList2Vector(params,0)+GRAPPLE_offset*llList2Rot(params,1);
+    vector offset=hitPos-myPos;
+    float length=llVecDist(hitPos,myPos);
+    if(length<10.0) offset=ZERO_VECTOR;
+    
+    VEHICLE_moveparams+=ropeOrient(LINK_cable,myPos,hitPos,0.029);
+    //when no object key is returned the GRAPPLE_offset becomes
+    //the global ray position of the hit point therefore no 
+    //local offset is generated and the ray position remains
+    //global and generates the force factor MIND == BLOWN
+    llPushObject(llGetKey(),offset,ZERO_VECTOR,FALSE);
+}
+PHYS_move()
+{
+    VEHICLE_moveparams=[];//clear queue
+    ANIM_shocks();//store to queue
+    ANIM_grapple();//store to queue
+    llSetLinkPrimitiveParamsFast(0,VEHICLE_moveparams);//execute queue
+}
+default
+{
+    on_rez(integer param)
+    {llResetScript();}
+    state_entry()
+    {
+        init();
+        //DEBUG:used to run suspension on compile
+        llSetTimerEvent(0.1);
+    }
+    changed(integer change)
+    {
+        if(change & CHANGED_LINK)
+        {
+            SYSTEM_user = llAvatarOnSitTarget();
+            if (SYSTEM_user)
+            {
+                VEHICLE_mass=llGetMass();
+                if (SYSTEM_user!=SYSTEM_owner&&!SYSTEM_public)
+                {
+                    llSay(0,MESSAGE_nogo);
+                    llUnSit(SYSTEM_user);
+                    llPushObject(SYSTEM_user, <0.0,0.0,50.0>, ZERO_VECTOR, FALSE);
+                }
+                else
+                    llRequestPermissions(SYSTEM_user,SYSTEM_permissions);
+            }
+            else
+            {
+                llSetTimerEvent(0.0);
+                //llStopSound();
+                llReleaseControls();
+                //llTriggerSound(SOUND_shutoff,0.8);
+                llSetStatus(STATUS_PHYSICS, FALSE);
+            }
+        }
+    }
+    control(key id, integer held, integer change)
+    {
+        integer pressed = change & held; integer released = change & ~held;
+        vector vel;vector angular_motor;DRIVE_linearmotor=ZERO_VECTOR;
+        vel=llGetVel()/VEHICLE_rot;
+        if((held & change)&CONTROL_ML_LBUTTON)
+        {
+            if(GRAPPLE_active)
+            {
+                llOwnerSay("grapple off");
+                //FIXME: hackaround default position
+                llSetLinkPrimitiveParamsFast(0,[
+                    PRIM_LINK_TARGET,LINK_cable,PRIM_POS_LOCAL,<3.77902, 0.00608, -0.06702>,
+                    PRIM_LINK_TARGET,LINK_cable,PRIM_ROT_LOCAL,ZERO_ROTATION,
+                    PRIM_LINK_TARGET,LINK_cable,PRIM_SIZE,<0.029,0.029,0.5>
+                ]);
+                //done longhand for 
+                //sequential organization
+                //not GRAPPLE_active=!GRAPPLE_active;
+                GRAPPLE_active=FALSE;
+            }
+            else
+            {
+                rotation rot=llGetCameraRot();
+                vector pos=localizePos(llGetCameraPos());
+                list hits=rayPoint(pos+<4.0,0.0,0.0>*rot,pos+<64.0,0.0,0.0>*rot,TRUE);
+                if(hits!=[0])
+                {
+                    GRAPPLE_hit=llList2String(hits,0);
+                    llOwnerSay("hit "+llKey2Name(GRAPPLE_hit)+" at "+(string)llList2Vector(hits,1));
+                    
+                    list posRot=llGetObjectDetails(GRAPPLE_hit,[OBJECT_POS,OBJECT_ROT]);
+                    GRAPPLE_offset=(llList2Vector(hits,1)-llList2Vector(posRot,0))/llList2Rot(posRot,1);
+                    GRAPPLE_active=TRUE;
+                }                
+            }
+        }
+        //ground controls
+        //if(!VEHICLE_inair)
+        //{
+            if(held & CONTROL_FWD)
+                DRIVE_linearmotor=<VEHICLE_powers.x,0,0>;
+            if(held & CONTROL_BACK)
+                DRIVE_linearmotor=<-VEHICLE_powers.y,0,0>;
+            if(released & CONTROL_FWD||released & CONTROL_BACK)
+                DRIVE_linearmotor=ZERO_VECTOR;
+            else if(held & (CONTROL_RIGHT|CONTROL_ROT_RIGHT))
+            {
+                angular_motor.z -= VEHICLE_powers.z*(clamp(vel.x,-VEHICLE_powers.x,30.0)/30.0);
+                VEHICLE_turnangle-=0.05;
+            }
+            else if(held & (CONTROL_LEFT|CONTROL_ROT_LEFT))
+            {
+                angular_motor.z += VEHICLE_powers.z*(clamp(vel.x,-VEHICLE_powers.x,30.0)/30.0);
+                VEHICLE_turnangle+=0.05;
+            }
+            else VEHICLE_turnangle=0.0;
+            
+        /*}
+        else
+        {
+            
+        }*/
+        VEHICLE_turnangle=clamp(VEHICLE_turnangle,-VEHICLE_maxturn,VEHICLE_maxturn);
+        llSetVehicleVectorParam(VEHICLE_LINEAR_MOTOR_DIRECTION,DRIVE_linearmotor*VEHICLE_mass);
+        llSetVehicleVectorParam(VEHICLE_ANGULAR_MOTOR_DIRECTION, angular_motor*VEHICLE_mass);
+    }
+    run_time_permissions(integer perm)
+    {
+        if (perm)
+        {
+            //stopAnim(llGetAnimationList(SYSTEM_user));
+            //llTriggerSound(SOUND_start,0.8);
+            llSetStatus(STATUS_PHYSICS, TRUE);
+            llSleep(0.1);//engine idle
+            //llLoopSound("f5500015-b8de-fb1e-a0f4-fe2c6381c616",1.0);
+            llTakeControls(SYSTEM_controls, TRUE, FALSE);
+            llSetTimerEvent(0.1);
+        }
+    }
+    timer()
+    {
+        VEHICLE_rot=llGetRootRotation();
+        VEHICLE_pos=llGetRootPosition();
+        VEHICLE_delta=llGetAndResetTime();
+        PHYS_move();
+    }
+}
